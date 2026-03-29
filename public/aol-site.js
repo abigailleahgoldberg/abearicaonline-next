@@ -1722,19 +1722,21 @@ function switchAuthTab(tab) {
   document.getElementById('auth-signin-form').style.display = isSignin ? 'block' : 'none';
   document.getElementById('auth-signup-form').style.display = isSignin ? 'none' : 'block';
   document.getElementById('auth-modal-title').textContent = isSignin ? 'Abearica Online — Sign In' : 'Abearica Online — Create Account';
-  document.getElementById('tab-signin').style.background = isSignin ? '#fff' : '#c0c0c0';
-  document.getElementById('tab-signin').style.color = isSignin ? '#000080' : '#444';
-  document.getElementById('tab-signup').style.background = isSignin ? '#c0c0c0' : '#fff';
-  document.getElementById('tab-signup').style.color = isSignin ? '#444' : '#000080';
+  document.getElementById('tab-signin').className = isSignin ? 'active' : '';
+  document.getElementById('tab-signup').className = isSignin ? '' : 'active';
+}
+
+function setAuthStatus(el, msg, type) {
+  el.textContent = msg;
+  el.className = 'auth-status ' + (type || 'error');
 }
 
 async function doSignIn() {
   const email = document.getElementById('si-email').value.trim();
   const password = document.getElementById('si-password').value;
   const status = document.getElementById('si-status');
-  if (!email || !password) { status.textContent = 'Please enter your email and password.'; return; }
-  status.style.color = '#000080';
-  status.textContent = 'Signing in...';
+  if (!email || !password) { setAuthStatus(status, 'Please enter your email and password.', 'error'); return; }
+  setAuthStatus(status, 'Signing in...', 'success');
   try {
     const res = await fetch(`${SB_AUTH_URL}/token?grant_type=password`, {
       method: 'POST',
@@ -1750,8 +1752,7 @@ async function doSignIn() {
     closeScreenNameModal();
     showAuthToast(`Welcome back, ${window._aolProfile?.screen_name || email.split('@')[0]}! 👋`);
   } catch(e) {
-    status.style.color = '#cc0000';
-    status.textContent = e.message || 'Sign in failed. Check your email and password.';
+    setAuthStatus(status, e.message || 'Sign in failed. Check your email and password.', 'error');
   }
 }
 
@@ -1761,12 +1762,11 @@ async function doSignUp() {
   const password = document.getElementById('su-password').value;
   const status = document.getElementById('su-status');
 
-  if (!screenName || !email || !password) { status.textContent = 'All fields are required.'; return; }
-  if (!/^[a-zA-Z0-9_]{3,20}$/.test(screenName)) { status.textContent = 'Screen name: 3-20 chars, letters/numbers/underscores only.'; return; }
-  if (password.length < 6) { status.textContent = 'Password must be at least 6 characters.'; return; }
+  if (!screenName || !email || !password) { setAuthStatus(status, 'All fields are required.', 'error'); return; }
+  if (!/^[a-zA-Z0-9_]{3,20}$/.test(screenName)) { setAuthStatus(status, 'Screen name: 3-20 chars, letters/numbers/underscores only.', 'error'); return; }
+  if (password.length < 6) { setAuthStatus(status, 'Password must be at least 6 characters.', 'error'); return; }
 
-  status.style.color = '#000080';
-  status.textContent = 'Creating your account...';
+  setAuthStatus(status, 'Creating your account...', 'success');
 
   try {
     // 1. Create auth user
@@ -1797,15 +1797,13 @@ async function doSignUp() {
       closeScreenNameModal();
       showAuthToast(`Welcome to Abearica Online, ${screenName}! 🐻`);
     } else {
-      // Email confirmation required
-      status.style.color = '#006600';
-      status.textContent = '✅ Account created! Check your email to confirm, then sign in.';
+      // Email confirmation required — show success, hide form fields
+      setAuthStatus(status, '✅ Account created! Check your email to confirm, then sign in.', 'success');
       document.getElementById('su-screenname').dataset.pendingScreenName = screenName;
       document.getElementById('su-email').dataset.pendingEmail = email;
     }
   } catch(e) {
-    status.style.color = '#cc0000';
-    status.textContent = e.message || 'Signup failed. Try a different email or screen name.';
+    setAuthStatus(status, e.message || 'Signup failed. Try a different email or screen name.', 'error');
   }
 }
 
