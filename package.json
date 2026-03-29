@@ -10,10 +10,14 @@
   },
   "dependencies": {
     "@sanity/client": "^7.20.0",
+    "@sanity/vision": "^5.18.0",
     "@supabase/supabase-js": "^2.100.1",
     "next": "14.2.35",
+    "next-sanity": "^12.2.1",
     "react": "^18",
-    "react-dom": "^18"
+    "react-dom": "^18",
+    "sanity": "^5.18.0",
+    "styled-components": "^6.3.12"
   },
   "devDependencies": {
     "@types/node": "^20",

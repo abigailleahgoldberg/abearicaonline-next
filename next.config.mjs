@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Required for Sanity Studio embedded route
+  reactStrictMode: true,
   images: {
     remotePatterns: [
       {
