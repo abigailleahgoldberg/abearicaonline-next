@@ -482,6 +482,7 @@ function initPortal() {
   }
 
   runDailyPulse();
+  loadSanityAnnouncements();
 
   // Tilt popup disabled
 }
