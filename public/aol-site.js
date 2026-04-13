@@ -14,18 +14,36 @@ const ARCADE_GAME_ICONS = {
   'asteroids':'🚀','pong':'🏸'
 };
 
-/* --- Unified arcade score submission --- */
+/* --- Unified arcade score submission ---
+   If the player is signed in, attaches user_id + screen_name so the score ties to their profile.
+   Anonymous players still post initials-only rows. */
+function _aolSessionToken() {
+  try {
+    const sess = JSON.parse(localStorage.getItem('aol_session') || 'null');
+    return sess?.access_token || null;
+  } catch { return null; }
+}
+
 window.submitArcadeScore = async function(gameName, initials, score) {
   try {
+    const token = _aolSessionToken();
+    const userId = window._aolUser?.id || null;
+    const screenName = window._aolProfile?.screen_name || null;
+    const safeInitials = (initials || screenName || 'AAA').toString().substring(0,3).toUpperCase();
+    const body = { game: gameName, initials: safeInitials, score };
+    if (userId && token) {
+      body.user_id = userId;
+      if (screenName) body.screen_name = screenName;
+    }
     await fetch(`${SB_URL}/rest/v1/arcade_scores`, {
       method: 'POST',
       headers: {
         'apikey': SB_KEY,
-        'Authorization': `Bearer ${SB_KEY}`,
+        'Authorization': `Bearer ${token || SB_KEY}`,
         'Content-Type': 'application/json',
         'Prefer': 'return=minimal'
       },
-      body: JSON.stringify({ game: gameName, initials: initials.substring(0,3).toUpperCase(), score })
+      body: JSON.stringify(body)
     });
     renderArcadeScoreboard();
   } catch(e) {}
@@ -37,11 +55,51 @@ window.showScoreEntry = function(gameName, finalScore, onDismiss) {
   const displayName = ARCADE_GAME_NAMES[gameName] || gameName;
   const isLowBetter = gameName === 'minesweeper';
   const scoreLabel = isLowBetter ? `TIME: ${finalScore}s` : `SCORE: ${finalScore.toLocaleString()}`;
+  const screenName = window._aolProfile?.screen_name;
 
+  // Signed-in flow: skip the initials modal, auto-submit under their screen name, and
+  // show a short "saved to your profile" toast with a link to their profile page.
+  if (screenName) {
+    window.submitArcadeScore(gameName, screenName, finalScore);
+    const t = document.createElement('div');
+    t.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,128,0.85);z-index:600;display:flex;align-items:center;justify-content:center;';
+    t.innerHTML = `
+      <div style="background:#c0c0c0;border-top:3px solid #fff;border-left:3px solid #fff;border-right:3px solid #404040;border-bottom:3px solid #404040;min-width:300px;">
+        <div style="background:linear-gradient(to right,#000080,#1084d0);color:#fff;font-size:11px;font-weight:bold;padding:3px 6px;">
+          <span>🏆 ${displayName} — Score Saved</span>
+        </div>
+        <div style="padding:18px;text-align:center;">
+          <div style="font-size:22px;font-weight:900;color:#000080;margin-bottom:6px;">${scoreLabel}</div>
+          <div style="font-size:13px;margin-bottom:14px;">Saved to <b>${sanitizeText(screenName)}</b>'s profile.</div>
+          <div style="display:flex;gap:8px;justify-content:center;">
+            <a href="/profile/${encodeURIComponent(screenName)}"
+              style="text-decoration:none;background:#c0c0c0;border-top:2px solid #fff;border-left:2px solid #fff;border-right:2px solid #404040;border-bottom:2px solid #404040;padding:4px 14px;font-size:12px;font-weight:bold;color:#000080;cursor:pointer;">
+              View My Profile
+            </a>
+            <button id="close-saved-btn"
+              style="background:#c0c0c0;border-top:2px solid #fff;border-left:2px solid #fff;border-right:2px solid #404040;border-bottom:2px solid #404040;padding:4px 14px;font-size:12px;cursor:pointer;">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+    _scoreEntryOverlay = t;
+    document.body.appendChild(t);
+    const cleanup = () => {
+      if (_scoreEntryOverlay) { _scoreEntryOverlay.remove(); _scoreEntryOverlay = null; }
+      if (onDismiss) onDismiss();
+    };
+    document.getElementById('close-saved-btn').addEventListener('click', cleanup);
+    setTimeout(cleanup, 4500);
+    return;
+  }
+
+  // Anonymous flow: 3-letter initials modal with a sign-in upsell.
   _scoreEntryOverlay = document.createElement('div');
   _scoreEntryOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,128,0.85);z-index:600;display:flex;align-items:center;justify-content:center;';
   _scoreEntryOverlay.innerHTML = `
-    <div style="background:#c0c0c0;border-top:3px solid #fff;border-left:3px solid #fff;border-right:3px solid #404040;border-bottom:3px solid #404040;min-width:260px;">
+    <div style="background:#c0c0c0;border-top:3px solid #fff;border-left:3px solid #fff;border-right:3px solid #404040;border-bottom:3px solid #404040;min-width:300px;">
       <div style="background:linear-gradient(to right,#000080,#1084d0);color:#fff;font-size:11px;font-weight:bold;padding:3px 6px;">
         <span>🏆 ${displayName} — Enter Your Initials</span>
       </div>
@@ -63,6 +121,10 @@ window.showScoreEntry = function(gameName, finalScore, onDismiss) {
             Skip
           </button>
         </div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid #808080;font-size:11px;color:#333;">
+          <b>Save scores to a screen name?</b>
+          <a href="#" id="signin-upsell" style="color:#000080;font-weight:bold;text-decoration:underline;display:inline-block;margin-left:4px;">Create free account →</a>
+        </div>
       </div>
     </div>
   `;
@@ -80,6 +142,14 @@ window.showScoreEntry = function(gameName, finalScore, onDismiss) {
   document.getElementById('submit-initials-btn').addEventListener('click', () => dismiss(true));
   document.getElementById('skip-initials-btn').addEventListener('click', () => dismiss(false));
   document.getElementById('initials-input').addEventListener('keydown', e => { if(e.key === 'Enter') dismiss(true); });
+  document.getElementById('signin-upsell').addEventListener('click', (e) => {
+    e.preventDefault();
+    dismiss(false);
+    if (typeof openScreenNameModal === 'function') {
+      openScreenNameModal();
+      setTimeout(() => { if (typeof switchAuthTab === 'function') switchAuthTab('signup'); }, 20);
+    }
+  });
 };
 
 /* --- Sidebar Breakout leaderboard (top 5 from arcade_scores) --- */
@@ -113,7 +183,7 @@ async function renderArcadeScoreboard() {
   const main    = document.getElementById('arcade-scoreboard-body-main');
   if(!sidebar && !main) return;
   try {
-    const res = await fetch(`${SB_URL}/rest/v1/arcade_scores?select=game,initials,score&order=score.desc&limit=200`, {
+    const res = await fetch(`${SB_URL}/rest/v1/arcade_scores?select=game,initials,score,screen_name&order=score.desc&limit=200`, {
       headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}` }
     });
     const all = await res.json();
@@ -125,12 +195,21 @@ async function renderArcadeScoreboard() {
     });
     if(byGame['minesweeper']) byGame['minesweeper'].sort((a,b)=>a.score-b.score);
 
+    // Helper: display label + profile link when a row has a screen_name
+    const scoreLabel = (s) => {
+      if (s.screen_name) {
+        const safe = sanitizeText(s.screen_name);
+        return `<a href="/profile/${encodeURIComponent(s.screen_name)}" style="color:inherit;text-decoration:none;border-bottom:1px dotted currentColor;">${safe}</a>`;
+      }
+      return sanitizeText((s.initials || '').toUpperCase());
+    };
+
     // Sidebar: compact version
     const sidebarHTML = GAME_META.map(g => {
       const scores = (byGame[g.key] || []).slice(0,3);
       const rows = [0,1,2].map(i => {
         const s = scores[i];
-        if(s) return `<div class="sb-score-row"><span class="sb-medal">${MEDALS[i]}</span><span class="sb-initials">${s.initials.toUpperCase()}</span><span class="sb-score">${s.score.toLocaleString()}</span></div>`;
+        if(s) return `<div class="sb-score-row"><span class="sb-medal">${MEDALS[i]}</span><span class="sb-initials">${scoreLabel(s)}</span><span class="sb-score">${s.score.toLocaleString()}</span></div>`;
         return `<div class="sb-score-row"><span class="sb-medal sb-empty">·</span><span class="sb-initials sb-empty">---</span><span class="sb-score sb-empty">---</span></div>`;
       }).join('');
       return `<div class="sb-game-row"><div class="sb-game-name">${g.icon} ${g.name}</div>${rows}</div>`;
@@ -139,7 +218,6 @@ async function renderArcadeScoreboard() {
 
     // Main (gaming section): full-width table style
     if(main) {
-      const medals2 = ['🥇','🥈','🥉'];
       main.innerHTML = `<table style="width:100%;border-collapse:collapse;font-family:'Courier New',monospace;font-size:11px;">
         <thead>
           <tr style="background:#000066;color:#FFD700;">
@@ -154,7 +232,7 @@ async function renderArcadeScoreboard() {
             const scores = (byGame[g.key] || []).slice(0,3);
             const cell = (i) => {
               const s = scores[i];
-              if(s) return `<div style="font-weight:bold;color:#000080;">${s.initials.toUpperCase()}</div><div style="color:#333;font-size:10px;">${s.score.toLocaleString()}</div>`;
+              if(s) return `<div style="font-weight:bold;color:#000080;">${scoreLabel(s)}</div><div style="color:#333;font-size:10px;">${s.score.toLocaleString()}</div>`;
               return `<div style="color:#ccc;">---</div>`;
             };
             return `<tr style="background:${gi%2===0?'#fafaf5':'#f0ece0'};border-bottom:1px solid #ddd;">
@@ -1844,8 +1922,51 @@ function showAuthToast(msg) {
 }
 
 function openProfileModal() {
-  // Phase 2 — placeholder for now
-  showAuthToast(`Signed in as ${window._aolProfile?.screen_name || window._aolUser?.email} · Sign out coming soon`);
+  const user = window._aolUser;
+  const profile = window._aolProfile;
+  if (!user) return;
+  const screenName = profile?.screen_name || user.email?.split('@')[0] || 'Friend';
+  const email = user.email || '—';
+  const joined = user.created_at ? new Date(user.created_at).toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' }) : '—';
+
+  const ov = document.createElement('div');
+  ov.id = 'profile-modal-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,128,0.85);z-index:610;display:flex;align-items:center;justify-content:center;';
+  ov.innerHTML = `
+    <div style="background:#c0c0c0;border-top:3px solid #fff;border-left:3px solid #fff;border-right:3px solid #404040;border-bottom:3px solid #404040;min-width:340px;max-width:92vw;">
+      <div style="background:linear-gradient(to right,#000080,#1084d0);color:#fff;font-size:11px;font-weight:bold;padding:3px 6px;display:flex;justify-content:space-between;align-items:center;">
+        <span>👤 ${sanitizeText(screenName)} — Your Profile</span>
+        <button id="pm-close" style="background:#c0c0c0;border-top:1px solid #fff;border-left:1px solid #fff;border-right:1px solid #404040;border-bottom:1px solid #404040;color:#000;font-size:10px;font-weight:bold;cursor:pointer;width:18px;height:16px;line-height:12px;">✕</button>
+      </div>
+      <div style="padding:16px 18px;">
+        <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px;">
+          <div style="width:56px;height:56px;border-radius:4px;background:linear-gradient(135deg,#000080,#1084d0);color:#FFD700;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900;font-family:Arial Black,sans-serif;border-top:2px solid #fff;border-left:2px solid #fff;border-right:2px solid #404040;border-bottom:2px solid #404040;">
+            ${sanitizeText(screenName.substring(0,1).toUpperCase())}
+          </div>
+          <div>
+            <div style="font-family:'Lora',serif;font-size:18px;font-weight:bold;color:#000080;">${sanitizeText(screenName)}</div>
+            <div style="font-size:11px;color:#555;">${sanitizeText(email)}</div>
+            <div style="font-size:10px;color:#888;margin-top:2px;">Member since ${joined}</div>
+          </div>
+        </div>
+        <div style="border-top:1px solid #808080;padding-top:12px;display:flex;flex-direction:column;gap:8px;">
+          <a href="/profile/${encodeURIComponent(screenName)}"
+            style="text-decoration:none;text-align:center;background:linear-gradient(to bottom,#000080,#000055);color:#FFD700;border:2px solid #4444cc;padding:7px 12px;font-size:12px;font-weight:bold;letter-spacing:1px;">
+            🏆 View My High Scores
+          </a>
+          <button id="pm-signout"
+            style="background:#c0c0c0;border-top:2px solid #fff;border-left:2px solid #fff;border-right:2px solid #404040;border-bottom:2px solid #404040;padding:6px 12px;font-size:12px;cursor:pointer;">
+            Sign Off
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(ov);
+  const cleanup = () => ov.remove();
+  document.getElementById('pm-close').addEventListener('click', cleanup);
+  document.getElementById('pm-signout').addEventListener('click', () => { cleanup(); doSignOut(); });
+  ov.addEventListener('click', (e) => { if (e.target === ov) cleanup(); });
 }
 
 // Legacy stub — no longer used
