@@ -56,46 +56,15 @@ window.showScoreEntry = function(gameName, finalScore, onDismiss) {
   const isLowBetter = gameName === 'minesweeper';
   const scoreLabel = isLowBetter ? `TIME: ${finalScore}s` : `SCORE: ${finalScore.toLocaleString()}`;
   const screenName = window._aolProfile?.screen_name;
+  const signedIn = !!screenName;
 
-  // Signed-in flow: skip the initials modal, auto-submit under their screen name, and
-  // show a short "saved to your profile" toast with a link to their profile page.
-  if (screenName) {
-    window.submitArcadeScore(gameName, screenName, finalScore);
-    const t = document.createElement('div');
-    t.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,128,0.85);z-index:600;display:flex;align-items:center;justify-content:center;';
-    t.innerHTML = `
-      <div style="background:#c0c0c0;border-top:3px solid #fff;border-left:3px solid #fff;border-right:3px solid #404040;border-bottom:3px solid #404040;min-width:300px;">
-        <div style="background:linear-gradient(to right,#000080,#1084d0);color:#fff;font-size:11px;font-weight:bold;padding:3px 6px;">
-          <span>🏆 ${displayName} — Score Saved</span>
-        </div>
-        <div style="padding:18px;text-align:center;">
-          <div style="font-size:22px;font-weight:900;color:#000080;margin-bottom:6px;">${scoreLabel}</div>
-          <div style="font-size:13px;margin-bottom:14px;">Saved to <b>${sanitizeText(screenName)}</b>'s profile.</div>
-          <div style="display:flex;gap:8px;justify-content:center;">
-            <a href="/profile/${encodeURIComponent(screenName)}"
-              style="text-decoration:none;background:#c0c0c0;border-top:2px solid #fff;border-left:2px solid #fff;border-right:2px solid #404040;border-bottom:2px solid #404040;padding:4px 14px;font-size:12px;font-weight:bold;color:#000080;cursor:pointer;">
-              View My Profile
-            </a>
-            <button id="close-saved-btn"
-              style="background:#c0c0c0;border-top:2px solid #fff;border-left:2px solid #fff;border-right:2px solid #404040;border-bottom:2px solid #404040;padding:4px 14px;font-size:12px;cursor:pointer;">
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-    _scoreEntryOverlay = t;
-    document.body.appendChild(t);
-    const cleanup = () => {
-      if (_scoreEntryOverlay) { _scoreEntryOverlay.remove(); _scoreEntryOverlay = null; }
-      if (onDismiss) onDismiss();
-    };
-    document.getElementById('close-saved-btn').addEventListener('click', cleanup);
-    setTimeout(cleanup, 4500);
-    return;
-  }
+  // Arcade-style initials modal for EVERY score (keeps the arcade feel).
+  // When signed in: prefill initials from the first 3 chars of their screen name
+  // AND save user_id + screen_name alongside the initials so it ties to their profile.
+  const prefillInitials = signedIn
+    ? screenName.replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase()
+    : '';
 
-  // Anonymous flow: 3-letter initials modal with a sign-in upsell.
   _scoreEntryOverlay = document.createElement('div');
   _scoreEntryOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,128,0.85);z-index:600;display:flex;align-items:center;justify-content:center;';
   _scoreEntryOverlay.innerHTML = `
@@ -106,7 +75,7 @@ window.showScoreEntry = function(gameName, finalScore, onDismiss) {
       <div style="padding:16px;text-align:center;">
         <div style="font-size:22px;font-weight:900;color:#000080;margin-bottom:4px;">${scoreLabel}</div>
         <div style="font-size:12px;margin-bottom:12px;">3 letters for the leaderboard:</div>
-        <input id="initials-input" maxlength="3"
+        <input id="initials-input" maxlength="3" value="${prefillInitials}"
           style="width:100px;text-align:center;font-size:28px;font-weight:bold;font-family:Arial Black,sans-serif;letter-spacing:4px;text-transform:uppercase;
           border-top:2px solid #404040;border-left:2px solid #404040;border-right:2px solid #fff;border-bottom:2px solid #fff;
           padding:6px 4px;background:#fff;outline:none;"
@@ -122,14 +91,19 @@ window.showScoreEntry = function(gameName, finalScore, onDismiss) {
           </button>
         </div>
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid #808080;font-size:11px;color:#333;">
-          <b>Save scores to a screen name?</b>
-          <a href="#" id="signin-upsell" style="color:#000080;font-weight:bold;text-decoration:underline;display:inline-block;margin-left:4px;">Create free account →</a>
+          ${signedIn
+            ? `Signed in as <b>${sanitizeText(screenName)}</b> — this score will save to your profile.`
+            : `<b>Save scores to a screen name?</b> <a href="javascript:void(0)" id="signin-upsell" style="color:#000080;font-weight:bold;text-decoration:underline;display:inline-block;margin-left:4px;">Create free account →</a>`
+          }
         </div>
       </div>
     </div>
   `;
   document.body.appendChild(_scoreEntryOverlay);
-  setTimeout(() => document.getElementById('initials-input')?.focus(), 100);
+  setTimeout(() => {
+    const input = document.getElementById('initials-input');
+    if (input) { input.focus(); input.select(); }
+  }, 100);
 
   function dismiss(submit) {
     const input = document.getElementById('initials-input');
@@ -142,14 +116,17 @@ window.showScoreEntry = function(gameName, finalScore, onDismiss) {
   document.getElementById('submit-initials-btn').addEventListener('click', () => dismiss(true));
   document.getElementById('skip-initials-btn').addEventListener('click', () => dismiss(false));
   document.getElementById('initials-input').addEventListener('keydown', e => { if(e.key === 'Enter') dismiss(true); });
-  document.getElementById('signin-upsell').addEventListener('click', (e) => {
-    e.preventDefault();
-    dismiss(false);
-    if (typeof openScreenNameModal === 'function') {
-      openScreenNameModal();
-      setTimeout(() => { if (typeof switchAuthTab === 'function') switchAuthTab('signup'); }, 20);
-    }
-  });
+  const upsell = document.getElementById('signin-upsell');
+  if (upsell) {
+    upsell.addEventListener('click', (e) => {
+      e.preventDefault();
+      dismiss(false);
+      if (typeof openScreenNameModal === 'function') {
+        openScreenNameModal();
+        setTimeout(() => { if (typeof switchAuthTab === 'function') switchAuthTab('signup'); }, 20);
+      }
+    });
+  }
 };
 
 /* --- Sidebar Breakout leaderboard (top 5 from arcade_scores) --- */
@@ -1826,12 +1803,97 @@ async function doSignIn() {
     localStorage.setItem('aol_session', JSON.stringify({ access_token: data.access_token, refresh_token: data.refresh_token }));
     window._aolUser = data.user;
     await loadProfile(data.access_token);
+
+    // Orphan-account handler: if a user exists but their profile row was never
+    // created (happens to users who signed up before the trigger existed),
+    // prompt them to pick a screen name now.
+    if (!window._aolProfile) {
+      closeScreenNameModal();
+      showPickScreenNameModal();
+      return;
+    }
+
     updateAuthUI();
     closeScreenNameModal();
-    showAuthToast(`Welcome back, ${window._aolProfile?.screen_name || email.split('@')[0]}! 👋`);
+    showAuthToast(`Welcome back, ${window._aolProfile.screen_name}! 👋`);
   } catch(e) {
     setAuthStatus(status, e.message || 'Sign in failed. Check your email and password.', 'error');
   }
+}
+
+/* Show a modal to create a missing profile row for the current session.
+   Used for orphan accounts that signed up before the profile trigger existed. */
+async function showPickScreenNameModal() {
+  if (!window._aolUser) return;
+  const token = _aolSessionToken();
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,128,0.9);z-index:615;display:flex;align-items:center;justify-content:center;';
+  ov.innerHTML = `
+    <div style="background:#c0c0c0;border-top:3px solid #fff;border-left:3px solid #fff;border-right:3px solid #404040;border-bottom:3px solid #404040;min-width:340px;max-width:92vw;">
+      <div style="background:linear-gradient(to right,#000080,#1084d0);color:#fff;font-size:11px;font-weight:bold;padding:3px 6px;">
+        <span>📝 Pick Your Screen Name</span>
+      </div>
+      <div style="padding:18px;">
+        <div style="font-size:12px;margin-bottom:12px;color:#333;">
+          Welcome back! Pick the screen name you want to go by on Abearica Online. This is what shows on the leaderboard and your profile page.
+        </div>
+        <input id="psn-input" maxlength="20" placeholder="YourScreenName"
+          style="width:100%;font-size:16px;padding:8px;font-family:Arial,sans-serif;letter-spacing:0.5px;
+          border-top:2px solid #404040;border-left:2px solid #404040;border-right:2px solid #fff;border-bottom:2px solid #fff;background:#fff;outline:none;">
+        <div id="psn-status" style="font-size:11px;color:#cc0000;margin-top:6px;min-height:14px;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+          <button id="psn-submit"
+            style="background:linear-gradient(to bottom,#000080,#000055);color:#FFD700;border:2px solid #4444cc;padding:6px 16px;font-size:12px;font-weight:bold;cursor:pointer;">
+            [ SAVE ]
+          </button>
+        </div>
+        <div style="font-size:10px;color:#888;margin-top:10px;">
+          3–20 characters. Letters, numbers, underscores only. Must be unique.
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(ov);
+  const input = document.getElementById('psn-input');
+  const status = document.getElementById('psn-status');
+  setTimeout(() => input.focus(), 50);
+
+  async function save() {
+    const name = input.value.trim();
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(name)) {
+      status.textContent = 'Screen name: 3–20 chars, letters/numbers/underscores only.';
+      return;
+    }
+    status.style.color = '#000080';
+    status.textContent = 'Saving...';
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/profiles`, {
+        method: 'POST',
+        headers: {
+          'apikey': SB_KEY,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify({ id: window._aolUser.id, screen_name: name })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Save failed — that screen name may be taken.');
+      }
+      const rows = await res.json();
+      window._aolProfile = rows[0] || { id: window._aolUser.id, screen_name: name };
+      ov.remove();
+      updateAuthUI();
+      showAuthToast(`Welcome, ${name}! 🐻`);
+    } catch (e) {
+      status.style.color = '#cc0000';
+      status.textContent = e.message || 'Save failed.';
+    }
+  }
+
+  document.getElementById('psn-submit').addEventListener('click', save);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
 }
 
 async function doSignUp() {
@@ -1847,27 +1909,19 @@ async function doSignUp() {
   setAuthStatus(status, 'Creating your account...', 'success');
 
   try {
-    // 1. Create auth user
+    // 1. Create auth user — pass screen_name in user_metadata so the DB trigger
+    //    (public.handle_new_user) can auto-create the profile row even when
+    //    email confirmation is required and no access_token comes back.
     const res = await fetch(`${SB_AUTH_URL}/signup`, {
       method: 'POST',
       headers: { 'apikey': SB_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, data: { screen_name: screenName } })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error_description || data.msg || 'Signup failed');
 
-    // 2. If we have an access token, create profile immediately
     if (data.access_token) {
-      await fetch(`${SB_URL}/rest/v1/profiles`, {
-        method: 'POST',
-        headers: {
-          'apikey': SB_KEY,
-          'Authorization': `Bearer ${data.access_token}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify({ id: data.user.id, screen_name: screenName })
-      });
+      // No email confirmation required — we're already logged in.
       localStorage.setItem('aol_session', JSON.stringify({ access_token: data.access_token, refresh_token: data.refresh_token }));
       window._aolUser = data.user;
       await loadProfile(data.access_token);
@@ -1875,10 +1929,9 @@ async function doSignUp() {
       closeScreenNameModal();
       showAuthToast(`Welcome to Abearica Online, ${screenName}! 🐻`);
     } else {
-      // Email confirmation required — show success, hide form fields
-      setAuthStatus(status, '✅ Account created! Check your email to confirm, then sign in.', 'success');
-      document.getElementById('su-screenname').dataset.pendingScreenName = screenName;
-      document.getElementById('su-email').dataset.pendingEmail = email;
+      // Email confirmation required — profile row is already queued via trigger,
+      // will exist by the time they verify + sign in.
+      setAuthStatus(status, '✅ Account created! Check your email to confirm, then sign in as ' + screenName + '.', 'success');
     }
   } catch(e) {
     setAuthStatus(status, e.message || 'Signup failed. Try a different email or screen name.', 'error');
